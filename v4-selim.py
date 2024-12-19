@@ -83,111 +83,177 @@ def custom_get_structuring_element(shape, ksize):
     else:
         raise ValueError("Unsupported shape. Currently only 'rect' is implemented.")
     
-    
-def custom_morph_open(image, kernel, iterations=1):
+
+def custom_bgr_to_rgb(image):
     """
-    Perform morphological opening (erosion followed by dilation) on a binary image.
+    Converts a BGR image to RGB format.
 
     Parameters:
-        image (numpy.ndarray): Binary input image (2D array).
-        kernel (numpy.ndarray): Structuring element (2D array).
-        iterations (int): Number of times to apply the opening operation.
-    
-    Returns:
-        numpy.ndarray: Binary image after opening.
-    """
-    result = image
-    for _ in range(iterations):
-        result = custom_erosion(result, kernel)
-        result = custom_dilation(result, kernel)
-    return result
+        image (numpy.ndarray): The input image in BGR format (H x W x 3).
 
-def custom_morph_close(image, kernel, iterations=1):
+    Returns:
+        numpy.ndarray: The image converted to RGB format (H x W x 3).
     """
-    Perform morphological closing (dilation followed by erosion) on a binary image.
+    if len(image.shape) != 3 or image.shape[2] != 3:
+        raise ValueError("Input image must be a 3-channel image (H x W x 3).")
+    
+    # Swap the first (B) and third (R) channels
+    rgb_image = image[:, :, ::-1]
+    return rgb_image
+
+def custom_gaussian_blur(image, kernel_size, sigma=0):
+    """
+    Applies Gaussian blur to an image.
     
     Parameters:
-        image (numpy.ndarray): Binary input image (2D array).
-        kernel (numpy.ndarray): Structuring element (2D array).
-        iterations (int): Number of times to apply the closing operation.
+        image (numpy.ndarray): The input image (H x W or H x W x C).
+        kernel_size (tuple): Size of the Gaussian kernel (height, width). Must be odd numbers.
+        sigma (float): Standard deviation for Gaussian kernel. If 0, it is computed automatically.
     
     Returns:
-        numpy.ndarray: Binary image after closing.
+        numpy.ndarray: The blurred image.
     """
-    result = image
-    for _ in range(iterations):
-        result = custom_dilation(result, kernel)
-        result = custom_erosion(result, kernel)
-    return result
+    def gaussian_kernel(size, sigma):
+        """Generate a Gaussian kernel."""
+        if sigma <= 0:
+            sigma = 0.3 * ((size - 1) * 0.5 - 1) + 0.8  # Approximation for automatic sigma
+        ax = np.linspace(-(size // 2), size // 2, size)
+        gauss = np.exp(-0.5 * np.square(ax) / np.square(sigma))
+        kernel = np.outer(gauss, gauss)
+        return kernel / np.sum(kernel)
 
+    # Ensure kernel dimensions are odd
+    if kernel_size[0] % 2 == 0 or kernel_size[1] % 2 == 0:
+        raise ValueError("Kernel size must be odd.")
 
-def custom_erosion(image, kernel):
-    """
-    Perform erosion on a binary image using a custom structuring element.
+    # Generate the Gaussian kernel
+    kernel = gaussian_kernel(kernel_size[0], sigma)
     
-    Parameters:
-        image (numpy.ndarray): Binary input image (2D array).
-        kernel (numpy.ndarray): Structuring element (2D array).
+    # Pad the image to handle edges
+    pad_h, pad_w = kernel_size[0] // 2, kernel_size[1] // 2
+    if image.ndim == 2:  # Grayscale image
+        padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='reflect')
+        blurred_image = np.zeros_like(image)
+    elif image.ndim == 3:  # Color image
+        padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='reflect')
+        blurred_image = np.zeros_like(image)
+    else:
+        raise ValueError("Unsupported image format.")
     
-    Returns:
-        numpy.ndarray: Eroded binary image.
-    """
-    kernel_height, kernel_width = kernel.shape
-    pad_h, pad_w = kernel_height // 2, kernel_width // 2
-    
-    # Pad the image to handle border pixels
-    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
-    output = np.zeros_like(image, dtype=np.uint8)
-    
-    # Slide the kernel across the image
+    # Convolve the kernel with the image
     for i in range(image.shape[0]):
         for j in range(image.shape[1]):
-            # Extract the region of interest
-            region = padded_image[i:i+kernel_height, j:j+kernel_width]
-            # Check if the kernel fits completely
-            if np.all(region[kernel == 1] == 1):
-                output[i, j] = 1  # Set to 1 if kernel fits
-    
-    return output
+            for c in range(image.shape[2]) if image.ndim == 3 else [None]:
+                region = padded_image[i:i+kernel_size[0], j:j+kernel_size[1]] if c is None else \
+                         padded_image[i:i+kernel_size[0], j:j+kernel_size[1], c]
+                blurred_image[i, j] = np.sum(region * kernel) if c is None else \
+                                      np.sum(region * kernel)
+    return blurred_image
 
-def custom_dilation(image, kernel):
+
+def custom_rgb_to_hsv(image):
     """
-    Perform dilation on a binary image using a custom structuring element.
-    
+    Converts an RGB image to HSV format.
+
     Parameters:
-        image (numpy.ndarray): Binary input image (2D array).
-        kernel (numpy.ndarray): Structuring element (2D array).
-    
+        image (numpy.ndarray): The input image in RGB format (H x W x 3).
+
     Returns:
-        numpy.ndarray: Dilated binary image.
+        numpy.ndarray: The image converted to HSV format (H x W x 3).
     """
-    kernel_height, kernel_width = kernel.shape
-    pad_h, pad_w = kernel_height // 2, kernel_width // 2
-    
-    # Pad the image to handle border pixels
-    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
-    output = np.zeros_like(image, dtype=np.uint8)
-    
-    # Slide the kernel across the image
-    for i in range(image.shape[0]):
-        for j in range(image.shape[1]):
-            # Extract the region of interest
-            region = padded_image[i:i+kernel_height, j:j+kernel_width]
-            # Check if any part of the kernel matches the region
-            if np.any(region[kernel == 1] == 1):
-                output[i, j] = 1  # Set to 1 if any overlap occurs
-    
-    return output
+    if len(image.shape) != 3 or image.shape[2] != 3:
+        raise ValueError("Input image must be an RGB image (H x W x 3).")
 
-
+    # Normalize RGB values to [0, 1] range
+    image = image.astype('float32') / 255.0
     
+    # Split RGB channels
+    R, G, B = image[:, :, 0], image[:, :, 1], image[:, :, 2]
+    
+    # Compute Value (V)
+    V = np.max(image, axis=2)
+    
+    # Compute Saturation (S)
+    C = V - np.min(image, axis=2)  # Chroma
+    S = np.where(V != 0, C / V, 0)
+    
+    # Compute Hue (H)
+    H = np.zeros_like(V)
+    mask = (V == R)
+    H[mask] = (60 * ((G[mask] - B[mask]) / C[mask]) + 360) % 360
+    mask = (V == G)
+    H[mask] = (60 * ((B[mask] - R[mask]) / C[mask]) + 120) % 360
+    mask = (V == B)
+    H[mask] = (60 * ((R[mask] - G[mask]) / C[mask]) + 240) % 360
+    
+    # Set Hue to 0 where Chroma is 0
+    H[C == 0] = 0
+
+    # Combine H, S, V into an HSV image
+    hsv_image = np.stack([H, S, V], axis=2)
+    return hsv_image
+
+def custom_in_range(image, lower_bound, upper_bound):
+    """
+    Creates a binary mask where each pixel is 1 if it is within the given range, and 0 otherwise.
+
+    Parameters:
+        image (numpy.ndarray): Input image (e.g., HSV image) of shape (H x W x C).
+        lower_bound (tuple or list): Lower bound for the range (e.g., [H_min, S_min, V_min]).
+        upper_bound (tuple or list): Upper bound for the range (e.g., [H_max, S_max, V_max]).
+
+    Returns:
+        numpy.ndarray: Binary mask of shape (H x W), where 1 indicates a pixel within range.
+    """
+    # Ensure the bounds are NumPy arrays for comparison
+    lower_bound = np.array(lower_bound, dtype=np.float32)
+    upper_bound = np.array(upper_bound, dtype=np.float32)
+    
+    # Create a mask for each channel
+    within_lower = image >= lower_bound
+    within_upper = image <= upper_bound
+
+    # Combine all channels to create the final mask
+    mask = np.all(within_lower & within_upper, axis=2)
+    
+    # Convert boolean mask to uint8 (0 or 255)
+    return (mask * 255).astype(np.uint8)
+
+def custom_add_weighted(image1, alpha, image2, beta, gamma):
+    """
+    Blends two images using a weighted sum.
+
+    Parameters:
+        image1 (numpy.ndarray): First input image.
+        alpha (float): Weight of the first image.
+        image2 (numpy.ndarray): Second input image.
+        beta (float): Weight of the second image.
+        gamma (float): Scalar added to each sum.
+
+    Returns:
+        numpy.ndarray: Blended image.
+    """
+    # Ensure both images have the same shape
+    if image1.shape != image2.shape:
+        raise ValueError("Both images must have the same shape.")
+    
+    # Perform weighted addition
+    blended = alpha * image1 + beta * image2 + gamma
+    
+    # Clip values to valid range [0, 255] and convert to uint8
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+    
+    return blended
+
 def process_image(image_path):
     # Load the image
     image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert to RGB for consistent display
+
+    image =  custom_bgr_to_rgb(image) # Convert to RGB for consistent display
 
     # Preprocess the image (optional)
-    image_blurred = cv2.GaussianBlur(image, (5, 5), 0)  # Apply Gaussian blur to reduce noise
+    image_blurred = cv2.GaussianBlur(image, (5, 5), 0) 
+
 
     # Convert the image to HSV color space
     hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
@@ -195,14 +261,15 @@ def process_image(image_path):
     # Dynamically determine the HSV range for yellow
     lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_image)
 
-    # Convert to np.uint8 to ensure compatibility with cv2.inRange
+    # Convert to np.uint8 to ensure compatibility
     lower_yellow = lower_yellow.astype(np.uint8)
     upper_yellow = upper_yellow.astype(np.uint8)
 
     print(f"Dynamic HSV Range for Yellow in {image_path}: Lower {lower_yellow}, Upper {upper_yellow}")
 
     # Create a mask for yellow
-    yellow_mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
+    yellow_mask = custom_in_range(hsv_image, lower_yellow, upper_yellow)
+
 
     # Apply morphological operations to clean the mask
     yellow_mask_cleaned = apply_morphology(yellow_mask)
@@ -214,7 +281,7 @@ def process_image(image_path):
     # Create a semi-transparent overlay
     overlay = image.copy()
     overlay[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
-    semi_transparent = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
+    semi_transparent = custom_add_weighted(image, 0.7, overlay, 0.3, 0)
 
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
