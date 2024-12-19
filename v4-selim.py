@@ -26,14 +26,18 @@ def clean_mask(mask):
     cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_OPEN, kernel)
     return cleaned_mask
 
-# Step 5: Highlight Yellow Regions in the Original Image
-def highlight_yellow_regions(image, mask):
-    # Convert mask to a 3-channel image
-    mask_3_channel = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+# Step 5: Overlay Semi-Transparent Red
+def overlay_transparent_red(image, mask, alpha=0.5):
+    # Create a red overlay
+    red_overlay = np.zeros_like(image, dtype=np.uint8)
+    red_overlay[:, :, 2] = 255  # Set the red channel to max
     
-    # Highlight yellow regions by combining the original image with the mask
-    highlighted_image = cv2.bitwise_and(image, mask_3_channel)
-    return highlighted_image
+    # Apply the mask to the red overlay
+    red_mask = cv2.bitwise_and(red_overlay, red_overlay, mask=mask)
+    
+    # Blend the original image with the red overlay
+    overlayed_image = cv2.addWeighted(image, 1 - alpha, red_mask, alpha, 0)
+    return overlayed_image
 
 # Step 6: Display or Save the Result
 def display_result(original_image, mask, highlighted_image):
@@ -48,7 +52,7 @@ def display_result(original_image, mask, highlighted_image):
     plt.imshow(mask, cmap='gray')
     
     plt.subplot(1, 3, 3)
-    plt.title("Highlighted Yellow Regions")
+    plt.title("Semi-Transparent Highlight")
     plt.imshow(cv2.cvtColor(highlighted_image, cv2.COLOR_BGR2RGB))
     
     plt.show()
@@ -60,7 +64,7 @@ def main(image_path):
     hsv_image = convert_to_hsv(image)
     yellow_mask = create_yellow_mask(hsv_image)
     cleaned_mask = clean_mask(yellow_mask)
-    highlighted_image = highlight_yellow_regions(image, cleaned_mask)
+    highlighted_image = overlay_transparent_red(image, cleaned_mask)
     
     # Display the results
     display_result(image, cleaned_mask, highlighted_image)
