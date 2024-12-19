@@ -6,7 +6,7 @@ def get_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturation=3
     """
     Dynamically calculates the HSV range for yellow tones in the given image.
     """
-    h, s, v = cv2.split(hsv_image)
+    h, s, v = custom_split(hsv_image)
     
     # Mask for the target hue range
     hue_mask = (h >= target_hue_range[0]) & (h <= target_hue_range[1])
@@ -27,12 +27,36 @@ def get_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturation=3
     
     return np.array([lower_hue, min_saturation, min_value]), np.array([upper_hue, 255, 255])
 
+
+def custom_split(hsv_image):
+    """
+    Splits an HSV image into its Hue, Saturation, and Value channels.
+
+    Parameters:
+        hsv_image (numpy.ndarray): A 3D numpy array representing an HSV image
+                                   with dimensions (height, width, 3).
+
+    Returns:
+        tuple: Three 2D numpy arrays (H, S, V) representing the individual channels.
+    """
+    # Ensure the input is a valid HSV image
+    if len(hsv_image.shape) != 3 or hsv_image.shape[2] != 3:
+        raise ValueError("Input must be an HSV image with 3 channels.")
+    
+    # Extract channels
+    H = hsv_image[:, :, 0]
+    S = hsv_image[:, :, 1]
+    V = hsv_image[:, :, 2]
+    
+    return H, S, V
+
+
 def apply_morphology(mask):
     """
     Applies enhanced morphological operations to clean the mask.
     """
     # Define a larger kernel for morphological operations
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel for stronger effect
+    kernel = custom_get_structuring_element('rect', (7, 7))  # Larger kernel for stronger effect
 
     # Apply multiple iterations of opening to remove noise
     mask_cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)  # Increase iterations
@@ -42,6 +66,121 @@ def apply_morphology(mask):
 
     return mask_cleaned
 
+def custom_get_structuring_element(shape, ksize):
+    """
+    Creates a structuring element (kernel) for morphological operations.
+
+    Parameters:
+        shape (str): Shape of the structuring element. Currently supports 'rect'.
+        ksize (tuple): Size of the structuring element (height, width).
+
+    Returns:
+        numpy.ndarray: A binary structuring element of the specified shape and size.
+    """
+    if shape == 'rect':
+        # Create a rectangular kernel of the specified size
+        return np.ones(ksize, dtype=np.uint8)
+    else:
+        raise ValueError("Unsupported shape. Currently only 'rect' is implemented.")
+    
+    
+def custom_morph_open(image, kernel, iterations=1):
+    """
+    Perform morphological opening (erosion followed by dilation) on a binary image.
+
+    Parameters:
+        image (numpy.ndarray): Binary input image (2D array).
+        kernel (numpy.ndarray): Structuring element (2D array).
+        iterations (int): Number of times to apply the opening operation.
+    
+    Returns:
+        numpy.ndarray: Binary image after opening.
+    """
+    result = image
+    for _ in range(iterations):
+        result = custom_erosion(result, kernel)
+        result = custom_dilation(result, kernel)
+    return result
+
+def custom_morph_close(image, kernel, iterations=1):
+    """
+    Perform morphological closing (dilation followed by erosion) on a binary image.
+    
+    Parameters:
+        image (numpy.ndarray): Binary input image (2D array).
+        kernel (numpy.ndarray): Structuring element (2D array).
+        iterations (int): Number of times to apply the closing operation.
+    
+    Returns:
+        numpy.ndarray: Binary image after closing.
+    """
+    result = image
+    for _ in range(iterations):
+        result = custom_dilation(result, kernel)
+        result = custom_erosion(result, kernel)
+    return result
+
+
+def custom_erosion(image, kernel):
+    """
+    Perform erosion on a binary image using a custom structuring element.
+    
+    Parameters:
+        image (numpy.ndarray): Binary input image (2D array).
+        kernel (numpy.ndarray): Structuring element (2D array).
+    
+    Returns:
+        numpy.ndarray: Eroded binary image.
+    """
+    kernel_height, kernel_width = kernel.shape
+    pad_h, pad_w = kernel_height // 2, kernel_width // 2
+    
+    # Pad the image to handle border pixels
+    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+    output = np.zeros_like(image, dtype=np.uint8)
+    
+    # Slide the kernel across the image
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            # Extract the region of interest
+            region = padded_image[i:i+kernel_height, j:j+kernel_width]
+            # Check if the kernel fits completely
+            if np.all(region[kernel == 1] == 1):
+                output[i, j] = 1  # Set to 1 if kernel fits
+    
+    return output
+
+def custom_dilation(image, kernel):
+    """
+    Perform dilation on a binary image using a custom structuring element.
+    
+    Parameters:
+        image (numpy.ndarray): Binary input image (2D array).
+        kernel (numpy.ndarray): Structuring element (2D array).
+    
+    Returns:
+        numpy.ndarray: Dilated binary image.
+    """
+    kernel_height, kernel_width = kernel.shape
+    pad_h, pad_w = kernel_height // 2, kernel_width // 2
+    
+    # Pad the image to handle border pixels
+    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+    output = np.zeros_like(image, dtype=np.uint8)
+    
+    # Slide the kernel across the image
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            # Extract the region of interest
+            region = padded_image[i:i+kernel_height, j:j+kernel_width]
+            # Check if any part of the kernel matches the region
+            if np.any(region[kernel == 1] == 1):
+                output[i, j] = 1  # Set to 1 if any overlap occurs
+    
+    return output
+
+
+    
 def process_image(image_path):
     # Load the image
     image = cv2.imread(image_path)
@@ -80,7 +219,7 @@ def process_image(image_path):
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
 # List of image filenames
-image_files = ["bb.jpg", "cc.png"]
+image_files = ["cc.png", "dd.jpg", "image.png"]
 
 # Process each image and store results
 results = [process_image(image_file) for image_file in image_files]
