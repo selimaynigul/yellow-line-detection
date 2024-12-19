@@ -79,54 +79,39 @@ def process_image(image_path):
 
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
-# Process both images
-image1, mask1, cleaned_mask1, highlight1 = process_image("cc.png")
-image2, mask2, cleaned_mask2, highlight2 = process_image("bb.jpg")
+# List of image filenames
+image_files = ["bb.jpg", "cc.png"]
 
-# Display results for both images
-plt.figure(figsize=(20, 15))
+# Process each image and store results
+results = [process_image(image_file) for image_file in image_files]
 
-# Results for the first image
-plt.subplot(4, 4, 1)
-plt.title("Original Image (cc.png)")
-plt.imshow(image1)
-plt.axis("off")
+# Display results for all images
+plt.figure(figsize=(20, 20))
+num_images = len(image_files)
+for i, (image_file, (original, mask, cleaned_mask, highlight)) in enumerate(zip(image_files, results)):
+    # Original Image
+    plt.subplot(num_images, 4, i * 4 + 1)
+    plt.title(f"Original Image ({image_file})")
+    plt.imshow(original)
+    plt.axis("off")
 
-plt.subplot(4, 4, 2)
-plt.title("Original Yellow Mask (cc.png)")
-plt.imshow(mask1, cmap="gray")
-plt.axis("off")
+    # Original Mask
+    plt.subplot(num_images, 4, i * 4 + 2)
+    plt.title(f"Original Yellow Mask ({image_file})")
+    plt.imshow(mask, cmap="gray")
+    plt.axis("off")
 
-plt.subplot(4, 4, 3)
-plt.title("Cleaned Yellow Mask (cc.png)")
-plt.imshow(cleaned_mask1, cmap="gray")
-plt.axis("off")
+    # Cleaned Mask
+    plt.subplot(num_images, 4, i * 4 + 3)
+    plt.title(f"Cleaned Yellow Mask ({image_file})")
+    plt.imshow(cleaned_mask, cmap="gray")
+    plt.axis("off")
 
-plt.subplot(4, 4, 4)
-plt.title("Semi-Transparent Highlight (cc.png)")
-plt.imshow(highlight1)
-plt.axis("off")
-
-# Results for the second image
-plt.subplot(4, 4, 5)
-plt.title("Original Image (bb.jpg)")
-plt.imshow(image2)
-plt.axis("off")
-
-plt.subplot(4, 4, 6)
-plt.title("Original Yellow Mask (bb.jpg)")
-plt.imshow(mask2, cmap="gray")
-plt.axis("off")
-
-plt.subplot(4, 4, 7)
-plt.title("Cleaned Yellow Mask (bb.jpg)")
-plt.imshow(cleaned_mask2, cmap="gray")
-plt.axis("off")
-
-plt.subplot(4, 4, 8)
-plt.title("Semi-Transparent Highlight (bb.jpg)")
-plt.imshow(highlight2)
-plt.axis("off")
+    # Semi-Transparent Highlight
+    plt.subplot(num_images, 4, i * 4 + 4)
+    plt.title(f"Semi-Transparent Highlight ({image_file})")
+    plt.imshow(highlight)
+    plt.axis("off")
 
 plt.tight_layout()
 plt.show()
