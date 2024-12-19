@@ -2,74 +2,131 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Step 1: Load the Image
-def load_image(image_path):
+def get_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturation=30, min_value=100):
+    """
+    Dynamically calculates the HSV range for yellow tones in the given image.
+    """
+    h, s, v = cv2.split(hsv_image)
+    
+    # Mask for the target hue range
+    hue_mask = (h >= target_hue_range[0]) & (h <= target_hue_range[1])
+    
+    # Mask for sufficient saturation and brightness
+    valid_mask = hue_mask & (s >= min_saturation) & (v >= min_value)
+    
+    # Extract hue values within the mask
+    valid_hues = h[valid_mask]
+    
+    # If valid hues are found, calculate dynamic range
+    if len(valid_hues) > 0:
+        lower_hue = max(target_hue_range[0], np.percentile(valid_hues, 2))  # 2nd percentile
+        upper_hue = min(target_hue_range[1], np.percentile(valid_hues, 98))  # 98th percentile
+    else:
+        # Default to full range if no yellow found
+        lower_hue, upper_hue = target_hue_range[0], target_hue_range[1]
+    
+    return np.array([lower_hue, min_saturation, min_value]), np.array([upper_hue, 255, 255])
+
+def apply_morphology(mask):
+    """
+    Applies enhanced morphological operations to clean the mask.
+    """
+    # Define a larger kernel for morphological operations
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel for stronger effect
+
+    # Apply multiple iterations of opening to remove noise
+    mask_cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)  # Increase iterations
+
+    # Apply multiple iterations of closing to fill gaps
+    mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)  # Increase iterations
+
+    return mask_cleaned
+
+def process_image(image_path):
+    # Load the image
     image = cv2.imread(image_path)
-    return image
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert to RGB for consistent display
 
-# Step 2: Convert to HSV Color Space
-def convert_to_hsv(image):
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    return hsv_image
+    # Preprocess the image (optional)
+    image_blurred = cv2.GaussianBlur(image, (5, 5), 0)  # Apply Gaussian blur to reduce noise
 
-# Step 3: Create a Mask for Yellow Color
-def create_yellow_mask(hsv_image):
-    lower_yellow = np.array([20, 100, 100])  # Adjust based on lighting
-    upper_yellow = np.array([30, 255, 255]) # Adjust based on lighting
-    mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
-    return mask
+    # Convert the image to HSV color space
+    hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
 
-# Step 4: Apply Morphological Operations
-def clean_mask(mask):
-    kernel = np.ones((5, 5), np.uint8)
-    cleaned_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_OPEN, kernel)
-    return cleaned_mask
+    # Dynamically determine the HSV range for yellow
+    lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_image)
 
-# Step 5: Overlay Semi-Transparent Red
-def overlay_transparent_red(image, mask, alpha=0.5):
-    # Create a red overlay
-    red_overlay = np.zeros_like(image, dtype=np.uint8)
-    red_overlay[:, :, 2] = 255  # Set the red channel to max
-    
-    # Apply the mask to the red overlay
-    red_mask = cv2.bitwise_and(red_overlay, red_overlay, mask=mask)
-    
-    # Blend the original image with the red overlay
-    overlayed_image = cv2.addWeighted(image, 1 - alpha, red_mask, alpha, 0)
-    return overlayed_image
+    # Convert to np.uint8 to ensure compatibility with cv2.inRange
+    lower_yellow = lower_yellow.astype(np.uint8)
+    upper_yellow = upper_yellow.astype(np.uint8)
 
-# Step 6: Display or Save the Result
-def display_result(original_image, mask, highlighted_image):
-    plt.figure(figsize=(15, 5))
-    
-    plt.subplot(1, 3, 1)
-    plt.title("Original Image")
-    plt.imshow(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
-    
-    plt.subplot(1, 3, 2)
-    plt.title("Yellow Mask")
-    plt.imshow(mask, cmap='gray')
-    
-    plt.subplot(1, 3, 3)
-    plt.title("Semi-Transparent Highlight")
-    plt.imshow(cv2.cvtColor(highlighted_image, cv2.COLOR_BGR2RGB))
-    
-    plt.show()
+    print(f"Dynamic HSV Range for Yellow in {image_path}: Lower {lower_yellow}, Upper {upper_yellow}")
 
-# Main Function to Run All Steps
-def main(image_path):
-    # Load and process the image
-    image = load_image(image_path)
-    hsv_image = convert_to_hsv(image)
-    yellow_mask = create_yellow_mask(hsv_image)
-    cleaned_mask = clean_mask(yellow_mask)
-    highlighted_image = overlay_transparent_red(image, cleaned_mask)
-    
-    # Display the results
-    display_result(image, cleaned_mask, highlighted_image)
+    # Create a mask for yellow
+    yellow_mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
 
-# Provide the path to your input image
-if __name__ == "__main__":
-    image_path = "image.jpg"  # Change to the path of your image
-    main(image_path)
+    # Apply morphological operations to clean the mask
+    yellow_mask_cleaned = apply_morphology(yellow_mask)
+
+    # Apply the cleaned mask to highlight the yellow areas
+    highlighted = image.copy()
+    highlighted[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
+
+    # Create a semi-transparent overlay
+    overlay = image.copy()
+    overlay[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
+    semi_transparent = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
+
+    return image, yellow_mask, yellow_mask_cleaned, semi_transparent
+
+# Process both images
+image1, mask1, cleaned_mask1, highlight1 = process_image("cc.png")
+image2, mask2, cleaned_mask2, highlight2 = process_image("bb.jpg")
+
+# Display results for both images
+plt.figure(figsize=(20, 15))
+
+# Results for the first image
+plt.subplot(4, 4, 1)
+plt.title("Original Image (cc.png)")
+plt.imshow(image1)
+plt.axis("off")
+
+plt.subplot(4, 4, 2)
+plt.title("Original Yellow Mask (cc.png)")
+plt.imshow(mask1, cmap="gray")
+plt.axis("off")
+
+plt.subplot(4, 4, 3)
+plt.title("Cleaned Yellow Mask (cc.png)")
+plt.imshow(cleaned_mask1, cmap="gray")
+plt.axis("off")
+
+plt.subplot(4, 4, 4)
+plt.title("Semi-Transparent Highlight (cc.png)")
+plt.imshow(highlight1)
+plt.axis("off")
+
+# Results for the second image
+plt.subplot(4, 4, 5)
+plt.title("Original Image (bb.jpg)")
+plt.imshow(image2)
+plt.axis("off")
+
+plt.subplot(4, 4, 6)
+plt.title("Original Yellow Mask (bb.jpg)")
+plt.imshow(mask2, cmap="gray")
+plt.axis("off")
+
+plt.subplot(4, 4, 7)
+plt.title("Cleaned Yellow Mask (bb.jpg)")
+plt.imshow(cleaned_mask2, cmap="gray")
+plt.axis("off")
+
+plt.subplot(4, 4, 8)
+plt.title("Semi-Transparent Highlight (bb.jpg)")
+plt.imshow(highlight2)
+plt.axis("off")
+
+plt.tight_layout()
+plt.show()
