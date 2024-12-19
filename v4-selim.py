@@ -101,55 +101,6 @@ def custom_bgr_to_rgb(image):
     rgb_image = image[:, :, ::-1]
     return rgb_image
 
-def custom_gaussian_blur(image, kernel_size, sigma=0):
-    """
-    Applies Gaussian blur to an image.
-    
-    Parameters:
-        image (numpy.ndarray): The input image (H x W or H x W x C).
-        kernel_size (tuple): Size of the Gaussian kernel (height, width). Must be odd numbers.
-        sigma (float): Standard deviation for Gaussian kernel. If 0, it is computed automatically.
-    
-    Returns:
-        numpy.ndarray: The blurred image.
-    """
-    def gaussian_kernel(size, sigma):
-        """Generate a Gaussian kernel."""
-        if sigma <= 0:
-            sigma = 0.3 * ((size - 1) * 0.5 - 1) + 0.8  # Approximation for automatic sigma
-        ax = np.linspace(-(size // 2), size // 2, size)
-        gauss = np.exp(-0.5 * np.square(ax) / np.square(sigma))
-        kernel = np.outer(gauss, gauss)
-        return kernel / np.sum(kernel)
-
-    # Ensure kernel dimensions are odd
-    if kernel_size[0] % 2 == 0 or kernel_size[1] % 2 == 0:
-        raise ValueError("Kernel size must be odd.")
-
-    # Generate the Gaussian kernel
-    kernel = gaussian_kernel(kernel_size[0], sigma)
-    
-    # Pad the image to handle edges
-    pad_h, pad_w = kernel_size[0] // 2, kernel_size[1] // 2
-    if image.ndim == 2:  # Grayscale image
-        padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='reflect')
-        blurred_image = np.zeros_like(image)
-    elif image.ndim == 3:  # Color image
-        padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='reflect')
-        blurred_image = np.zeros_like(image)
-    else:
-        raise ValueError("Unsupported image format.")
-    
-    # Convolve the kernel with the image
-    for i in range(image.shape[0]):
-        for j in range(image.shape[1]):
-            for c in range(image.shape[2]) if image.ndim == 3 else [None]:
-                region = padded_image[i:i+kernel_size[0], j:j+kernel_size[1]] if c is None else \
-                         padded_image[i:i+kernel_size[0], j:j+kernel_size[1], c]
-                blurred_image[i, j] = np.sum(region * kernel) if c is None else \
-                                      np.sum(region * kernel)
-    return blurred_image
-
 
 def custom_rgb_to_hsv(image):
     """
