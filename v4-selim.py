@@ -60,11 +60,94 @@ def apply_morphology(mask):
 
     # Apply multiple iterations of opening to remove noise
     mask_cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)  # Increase iterations
+    #mask_cleaned = custom_morphology_open(mask, kernel, iterations=2) # dogru calisiyor ama yavas
+
 
     # Apply multiple iterations of closing to fill gaps
     mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)  # Increase iterations
+    #mask_cleaned = custom_morphology_close(mask, kernel, iterations=2) # biraz kotu calisiyor
+
 
     return mask_cleaned
+
+
+def custom_morphology_open(image, kernel, iterations=1):
+    """
+    Perform morphological opening (erosion followed by dilation) on a binary image.
+
+    Parameters:
+        image (np.ndarray): Input binary image (2D array).
+        kernel (np.ndarray): Structuring element for morphological operations.
+        iterations (int): Number of times to apply the opening operation.
+
+    Returns:
+        np.ndarray: Processed binary image after morphological opening.
+    """
+    def erode(image, kernel, iterations=1):
+        for _ in range(iterations):
+            padded_image = np.pad(image, kernel.shape[0] // 2, mode='constant', constant_values=0)
+            eroded = np.zeros_like(image)
+            for i in range(image.shape[0]):
+                for j in range(image.shape[1]):
+                    region = padded_image[i:i+kernel.shape[0], j:j+kernel.shape[1]]
+                    eroded[i, j] = np.min(region[kernel == 1])
+            image = eroded
+        return image
+
+    def dilate(image, kernel, iterations=1):
+        for _ in range(iterations):
+            padded_image = np.pad(image, kernel.shape[0] // 2, mode='constant', constant_values=0)
+            dilated = np.zeros_like(image)
+            for i in range(image.shape[0]):
+                for j in range(image.shape[1]):
+                    region = padded_image[i:i+kernel.shape[0], j:j+kernel.shape[1]]
+                    dilated[i, j] = np.max(region[kernel == 1])
+            image = dilated
+        return image
+
+    # Apply erosion followed by dilation
+    eroded_image = erode(image, kernel, iterations=iterations)
+    opened_image = dilate(eroded_image, kernel, iterations=iterations)
+    return opened_image
+
+def custom_morphology_close(image, kernel, iterations=1):
+    """
+    Perform morphological closing (dilation followed by erosion) on a binary image.
+
+    Parameters:
+        image (np.ndarray): Input binary image (2D array).
+        kernel (np.ndarray): Structuring element for morphological operations.
+        iterations (int): Number of times to apply the closing operation.
+
+    Returns:
+        np.ndarray: Processed binary image after morphological closing.
+    """
+    def erode(image, kernel, iterations=1):
+        for _ in range(iterations):
+            padded_image = np.pad(image, kernel.shape[0] // 2, mode='constant', constant_values=0)
+            eroded = np.zeros_like(image)
+            for i in range(image.shape[0]):
+                for j in range(image.shape[1]):
+                    region = padded_image[i:i+kernel.shape[0], j:j+kernel.shape[1]]
+                    eroded[i, j] = np.min(region[kernel == 1])
+            image = eroded
+        return image
+
+    def dilate(image, kernel, iterations=1):
+        for _ in range(iterations):
+            padded_image = np.pad(image, kernel.shape[0] // 2, mode='constant', constant_values=0)
+            dilated = np.zeros_like(image)
+            for i in range(image.shape[0]):
+                for j in range(image.shape[1]):
+                    region = padded_image[i:i+kernel.shape[0], j:j+kernel.shape[1]]
+                    dilated[i, j] = np.max(region[kernel == 1])
+            image = dilated
+        return image
+
+    # Apply dilation followed by erosion
+    dilated_image = dilate(image, kernel, iterations=iterations)
+    closed_image = erode(dilated_image, kernel, iterations=iterations)
+    return closed_image
 
 def custom_get_structuring_element(shape, ksize):
     """
@@ -205,9 +288,9 @@ def process_image(image_path):
     # Preprocess the image (optional)
     image_blurred = cv2.GaussianBlur(image, (5, 5), 0) 
 
-
     # Convert the image to HSV color space
     hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
+
 
     # Dynamically determine the HSV range for yellow
     lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_image)
