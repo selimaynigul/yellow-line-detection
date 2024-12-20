@@ -373,7 +373,7 @@ def process_image(image_path):
 
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
-process_video("input.mp4", "output.mp4")
+process_video("videos/video3.mp4", "outputs/output.mp4")
 
 """ 
 # List of image filenames
