@@ -279,6 +279,60 @@ def custom_add_weighted(image1, alpha, image2, beta, gamma):
     
     return blended
 
+def process_video(input_video_path, output_video_path):
+    # Open the video file
+    cap = cv2.VideoCapture(input_video_path)
+    
+    # Get video properties
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for output video
+    
+    # Initialize the video writer
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break  # Exit when no more frames are available
+
+        # Convert the frame to RGB
+        frame_rgb = custom_bgr_to_rgb(frame)
+        
+        # Preprocess and convert to HSV
+        frame_blurred = cv2.GaussianBlur(frame_rgb, (5, 5), 0)
+        hsv_frame = cv2.cvtColor(frame_blurred, cv2.COLOR_RGB2HSV)
+        
+        # Dynamically determine the HSV range for yellow
+        lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_frame)
+        
+        # Convert ranges to uint8 for compatibility
+        lower_yellow = lower_yellow.astype(np.uint8)
+        upper_yellow = upper_yellow.astype(np.uint8)
+        
+        # Create a mask for yellow
+        yellow_mask = custom_in_range(hsv_frame, lower_yellow, upper_yellow)
+        
+        # Clean the mask with morphology
+        yellow_mask_cleaned = apply_morphology(yellow_mask)
+        
+        # Highlight the yellow areas on the frame
+        overlay = frame_rgb.copy()
+        overlay[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
+        semi_transparent = custom_add_weighted(frame_rgb, 0.7, overlay, 0.3, 0)
+        
+        # Convert back to BGR for video writer
+        output_frame = cv2.cvtColor(semi_transparent, cv2.COLOR_RGB2BGR)
+        
+        # Write the processed frame to the output video
+        out.write(output_frame)
+    
+    # Release resources
+    cap.release()
+    out.release()
+    print(f"Processed video saved as {output_video_path}")
+    
 def process_image(image_path):
     # Load the image
     image = cv2.imread(image_path)
@@ -319,6 +373,9 @@ def process_image(image_path):
 
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
+process_video("input.mp4", "output.mp4")
+
+""" 
 # List of image filenames
 image_files = ["cc.png", "dd.jpg", "image.png"]
 
@@ -355,3 +412,4 @@ for i, (image_file, (original, mask, cleaned_mask, highlight)) in enumerate(zip(
 
 plt.tight_layout()
 plt.show()
+ """
