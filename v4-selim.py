@@ -27,7 +27,6 @@ def get_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturation=3
     
     return np.array([lower_hue, min_saturation, min_value]), np.array([upper_hue, 255, 255])
 
-
 def custom_split(hsv_image):
     """
     Splits an HSV image into its Hue, Saturation, and Value channels.
@@ -50,7 +49,6 @@ def custom_split(hsv_image):
     
     return H, S, V
 
-
 def apply_morphology(mask):
     """
     Applies enhanced morphological operations to clean the mask.
@@ -59,17 +57,16 @@ def apply_morphology(mask):
     kernel = custom_get_structuring_element('rect', (7, 7))  # Larger kernel for stronger effect
 
     # Apply multiple iterations of opening to remove noise
-    mask_cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)  # Increase iterations
-    #mask_cleaned = custom_morphology_open(mask, kernel, iterations=2) # dogru calisiyor ama yavas
+    #mask_cleaned = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)  # Increase iterations
+    mask_cleaned = custom_morphology_open(mask, kernel, iterations=2) # dogru calisiyor ama yavas
 
 
     # Apply multiple iterations of closing to fill gaps
-    mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)  # Increase iterations
-    #mask_cleaned = custom_morphology_close(mask, kernel, iterations=2) # biraz kotu calisiyor
+    #mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_CLOSE, kernel, iterations=2)  # Increase iterations
+    mask_cleaned = custom_morphology_close(mask, kernel, iterations=2) # biraz kotu calisiyor
 
 
     return mask_cleaned
-
 
 def custom_morphology_open(image, kernel, iterations=1):
     """
@@ -167,6 +164,122 @@ def custom_get_structuring_element(shape, ksize):
         raise ValueError("Unsupported shape. Currently only 'rect' is implemented.")
     
 
+def custom_gaussian_blur(image, kernel_size=(5, 5), sigma=0):
+    """
+    Applies a Gaussian blur to an image using only NumPy (no external libraries like OpenCV or SciPy).
+
+    Parameters:
+        image (numpy.ndarray): Input image (H x W x C) or (H x W) in RGB/Gray format.
+        kernel_size (tuple): The size of the Gaussian kernel, e.g. (5, 5).
+        sigma (float): The standard deviation of the Gaussian. If set to 0, it will be estimated
+                       from the kernel size similar to how OpenCV does by default.
+
+    Returns:
+        numpy.ndarray: Blurred image of the same shape as the input.
+    """
+    # If sigma=0, estimate using a common heuristic:
+    # OpenCV uses sigma = 0.3*((ksize-1)*0.5 - 1) + 0.8 for each dimension, but we can simplify:
+    if sigma <= 0:
+        sigma = 0.3 * ((kernel_size[0] - 1) * 0.5 - 1) + 0.8
+
+    # 1. Create the Gaussian kernel
+    kernel = _create_gaussian_kernel(kernel_size, sigma)
+    
+    # 2. Convolve the image with the kernel
+    #    Handle both color (H x W x C) and grayscale (H x W) images
+    if len(image.shape) == 2:
+        # Grayscale image
+        blurred = _convolve2d(image, kernel)
+    else:
+        # Color image
+        # Convolve each channel separately
+        blurred_channels = []
+        for c in range(image.shape[2]):
+            channel_blurred = _convolve2d(image[..., c], kernel)
+            blurred_channels.append(channel_blurred)
+        blurred = np.stack(blurred_channels, axis=-1)
+
+    # Convert to the same type as the input (important if you're expecting uint8)
+    # Clip to [0, 255] if you want an 8-bit result. Otherwise you may just return as float.
+    blurred = np.clip(blurred, 0, 255).astype(image.dtype)
+
+    return blurred
+
+
+def _create_gaussian_kernel(kernel_size, sigma):
+    """
+    Creates a 2D Gaussian kernel using the given kernel size and standard deviation (sigma).
+
+    Parameters:
+        kernel_size (tuple): (height, width) of the kernel, e.g. (5, 5)
+        sigma (float): Standard deviation of the Gaussian distribution.
+
+    Returns:
+        numpy.ndarray: A 2D Gaussian kernel of shape (kernel_size[0], kernel_size[1]).
+    """
+    kx, ky = kernel_size
+    # Coordinates of the kernel center
+    cx, cy = (kx - 1) / 2.0, (ky - 1) / 2.0
+
+    # Initialize kernel
+    kernel = np.zeros((kx, ky), dtype=np.float32)
+
+    # Compute Gaussian for each cell (x, y)
+    for x in range(kx):
+        for y in range(ky):
+            # Distance from center
+            dx = (x - cx)**2
+            dy = (y - cy)**2
+            # 2D Gaussian formula
+            kernel[x, y] = np.exp(-(dx + dy) / (2 * sigma**2))
+
+    # Normalize so that the sum of all elements is 1
+    kernel_sum = np.sum(kernel)
+    if kernel_sum != 0:
+        kernel /= kernel_sum
+
+    return kernel
+
+
+def _convolve2d(image, kernel):
+    """
+    Convolves a 2D image (single channel) with a 2D kernel using 'same' padding.
+
+    Parameters:
+        image (numpy.ndarray): Grayscale image of shape (H, W).
+        kernel (numpy.ndarray): 2D kernel of shape (kH, kW).
+
+    Returns:
+        numpy.ndarray: Convolved image of shape (H, W).
+    """
+    # Image dimensions
+    H, W = image.shape
+    kH, kW = kernel.shape
+
+    # Output array (float to avoid overflow if input is uint8)
+    convolved = np.zeros((H, W), dtype=np.float32)
+
+    # Amount of padding needed on each side
+    pad_h = kH // 2
+    pad_w = kW // 2
+
+    # Pad the image with zeros (or reflect, replicate, etc. if desired)
+    padded = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+
+    # Perform the convolution
+    for i in range(H):
+        for j in range(W):
+            # Extract the local region
+            region = padded[i : i + kH, j : j + kW]
+
+            # Element-wise multiply and accumulate
+            value = np.sum(region * kernel)
+
+            # Store in the output
+            convolved[i, j] = value
+
+    return convolved
+
 def custom_bgr_to_rgb(image):
     """
     Converts a BGR image to RGB format.
@@ -184,48 +297,57 @@ def custom_bgr_to_rgb(image):
     rgb_image = image[:, :, ::-1]
     return rgb_image
 
-
 def custom_rgb_to_hsv(image):
     """
     Converts an RGB image to HSV format.
 
     Parameters:
-        image (numpy.ndarray): The input image in RGB format (H x W x 3).
+        image (numpy.ndarray): Input RGB image (H x W x 3) with values in the range [0, 255].
 
     Returns:
-        numpy.ndarray: The image converted to HSV format (H x W x 3).
+        numpy.ndarray: HSV image (H x W x 3) with H in [0, 180] and S, V in [0, 255].
     """
-    if len(image.shape) != 3 or image.shape[2] != 3:
-        raise ValueError("Input image must be an RGB image (H x W x 3).")
+    # Normalize RGB values to [0, 1]
+    rgb_normalized = image.astype(np.float32) / 255.0
 
-    # Normalize RGB values to [0, 1] range
-    image = image.astype('float32') / 255.0
-    
-    # Split RGB channels
-    R, G, B = image[:, :, 0], image[:, :, 1], image[:, :, 2]
-    
-    # Compute Value (V)
-    V = np.max(image, axis=2)
-    
-    # Compute Saturation (S)
-    C = V - np.min(image, axis=2)  # Chroma
-    S = np.where(V != 0, C / V, 0)
-    
-    # Compute Hue (H)
-    H = np.zeros_like(V)
-    mask = (V == R)
-    H[mask] = (60 * ((G[mask] - B[mask]) / C[mask]) + 360) % 360
-    mask = (V == G)
-    H[mask] = (60 * ((B[mask] - R[mask]) / C[mask]) + 120) % 360
-    mask = (V == B)
-    H[mask] = (60 * ((R[mask] - G[mask]) / C[mask]) + 240) % 360
-    
-    # Set Hue to 0 where Chroma is 0
-    H[C == 0] = 0
+    # Separate channels
+    R, G, B = rgb_normalized[..., 0], rgb_normalized[..., 1], rgb_normalized[..., 2]
 
-    # Combine H, S, V into an HSV image
-    hsv_image = np.stack([H, S, V], axis=2)
+    # Compute max and min values for each pixel
+    max_val = np.max(rgb_normalized, axis=2)
+    min_val = np.min(rgb_normalized, axis=2)
+    delta = max_val - min_val
+
+    # Initialize HSV arrays
+    H = np.zeros_like(max_val)
+    S = np.zeros_like(max_val)
+    V = max_val
+
+    # Calculate Hue
+    mask_r = (max_val == R) & (delta > 0)
+    mask_g = (max_val == G) & (delta > 0)
+    mask_b = (max_val == B) & (delta > 0)
+
+    # Assign hue values based on the dominant color channel
+    H[mask_r] = ((G[mask_r] - B[mask_r]) / delta[mask_r]) % 6
+    H[mask_g] = ((B[mask_g] - R[mask_g]) / delta[mask_g]) + 2
+    H[mask_b] = ((R[mask_b] - G[mask_b]) / delta[mask_b]) + 4
+
+    # Convert hue to degrees
+    H = (H / 6.0) * 180.0  # Scale to [0, 180] for compatibility
+
+    # Calculate Saturation
+    S[max_val > 0] = (delta[max_val > 0] / max_val[max_val > 0])
+
+    # Scale S and V to [0, 255]
+    S = (S * 255).astype(np.uint8)
+    V = (V * 255).astype(np.uint8)
+
+    # Stack H, S, and V to create the HSV image
+    hsv_image = np.stack([H.astype(np.uint8), S, V], axis=2)
+
     return hsv_image
+
 
 def custom_in_range(image, lower_bound, upper_bound):
     """
@@ -301,8 +423,8 @@ def process_video(input_video_path, output_video_path):
         frame_rgb = custom_bgr_to_rgb(frame)
         
         # Preprocess and convert to HSV
-        frame_blurred = cv2.GaussianBlur(frame_rgb, (5, 5), 0)
-        hsv_frame = cv2.cvtColor(frame_blurred, cv2.COLOR_RGB2HSV)
+        frame_blurred = custom_gaussian_blur(frame_rgb, (5, 5), 0)
+        hsv_frame = custom_rgb_to_hsv(frame_blurred)
         
         # Dynamically determine the HSV range for yellow
         lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_frame)
@@ -332,7 +454,68 @@ def process_video(input_video_path, output_video_path):
     cap.release()
     out.release()
     print(f"Processed video saved as {output_video_path}")
+
+def boost_saturation(image, saturation_boost=50):
+    """
+    Boosts the saturation of an image while leaving other properties unchanged.
     
+    Parameters:
+        image (numpy.ndarray): Input RGB image (H x W x 3).
+        saturation_boost (int): Amount to increase saturation (0-255).
+        
+    Returns:
+        numpy.ndarray: RGB image with boosted saturation.
+    """
+    # Convert the image to HSV
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    
+    # Boost the saturation channel
+    hsv_image[..., 1] = np.clip(hsv_image[..., 1] + saturation_boost, 0, 255)
+    
+    # Convert back to RGB
+    boosted_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2RGB)
+    
+    return boosted_image
+
+
+def refine_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturation=50, min_value=100):
+    """
+    Dynamically calculates a more refined HSV range for yellow tones in the given image.
+    """
+    h, s, v = hsv_image[:, :, 0], hsv_image[:, :, 1], hsv_image[:, :, 2]
+    
+    # Mask for the target hue range
+    hue_mask = (h >= target_hue_range[0]) & (h <= target_hue_range[1])
+    
+    # Mask for sufficient saturation and brightness
+    valid_mask = hue_mask & (s >= min_saturation) & (v >= min_value)
+    
+    # Extract hue values within the mask
+    valid_hues = h[valid_mask]
+    valid_saturations = s[valid_mask]
+    valid_values = v[valid_mask]
+    
+    # If valid hues are found, calculate a more specific range
+    if len(valid_hues) > 0:
+        lower_hue = max(target_hue_range[0], np.percentile(valid_hues, 5))  # 5th percentile
+        upper_hue = min(target_hue_range[1], np.percentile(valid_hues, 95))  # 95th percentile
+        lower_saturation = max(min_saturation, np.percentile(valid_saturations, 5))
+        upper_saturation = 255  # Keep full range
+        lower_value = max(min_value, np.percentile(valid_values, 5))
+        upper_value = 255  # Keep full range
+    else:
+        # Default to the provided ranges if no yellow is found
+        lower_hue, upper_hue = target_hue_range[0], target_hue_range[1]
+        lower_saturation, upper_saturation = min_saturation, 255
+        lower_value, upper_value = min_value, 255
+    
+    return (
+        np.array([lower_hue, lower_saturation, lower_value], dtype=np.uint8),
+        np.array([upper_hue, upper_saturation, upper_value], dtype=np.uint8),
+    )
+
+
+
 def process_image(image_path):
     # Load the image
     image = cv2.imread(image_path)
@@ -340,10 +523,14 @@ def process_image(image_path):
     image =  custom_bgr_to_rgb(image) # Convert to RGB for consistent display
 
     # Preprocess the image (optional)
-    image_blurred = cv2.GaussianBlur(image, (5, 5), 0) 
+    #image_blurred = cv2.GaussianBlur(image, (5, 5), 0) 
+    image_blurred = custom_gaussian_blur(image, (5, 5), 0)  # 5x5 Gaussian kernel, automatically determine sigma
+
+
 
     # Convert the image to HSV color space
-    hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
+    #hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
+    hsv_image = custom_rgb_to_hsv(image_blurred)  # fena degil is gorur
 
 
     # Dynamically determine the HSV range for yellow
@@ -357,7 +544,6 @@ def process_image(image_path):
 
     # Create a mask for yellow
     yellow_mask = custom_in_range(hsv_image, lower_yellow, upper_yellow)
-
 
     # Apply morphological operations to clean the mask
     yellow_mask_cleaned = apply_morphology(yellow_mask)
@@ -373,11 +559,12 @@ def process_image(image_path):
 
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
 
-process_video("videos/video3.mp4", "outputs/output.mp4")
+""" process_video("videos/video2.mp4", "outputs/output.mp4")
+ """ 
 
-""" 
 # List of image filenames
-image_files = ["cc.png", "dd.jpg", "image.png"]
+image_files = ["images/cc.png","images/dd.jpg", "images/bb.jpg", "images/image.png"]
+#image_files = ["images/cc.png"]
 
 # Process each image and store results
 results = [process_image(image_file) for image_file in image_files]
@@ -412,4 +599,4 @@ for i, (image_file, (original, mask, cleaned_mask, highlight)) in enumerate(zip(
 
 plt.tight_layout()
 plt.show()
- """
+  
