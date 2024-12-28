@@ -514,50 +514,66 @@ def refine_dynamic_hsv_range(hsv_image, target_hue_range=(15, 35), min_saturatio
         np.array([upper_hue, upper_saturation, upper_value], dtype=np.uint8),
     )
 
-
-
 def process_image(image_path):
-    # Load the image
-    image = cv2.imread(image_path)
+    """
+    Loads an image from the given path and processes it to detect and highlight 'yellow' regions.
 
-    image =  custom_bgr_to_rgb(image) # Convert to RGB for consistent display
+    Steps:
+    1. Read image from disk (in BGR format by default with cv2).
+    2. Convert the BGR image to RGB for consistent color processing.
+    3. (Optional) Apply a Gaussian blur to reduce noise and detail.
+    4. Convert the blurred RGB image to HSV color space.
+    5. Dynamically determine the lower and upper HSV bounds for 'yellow' regions in the image.
+    6. Create a binary mask using these HSV bounds (pixels within range are 1, otherwise 0).
+    7. Clean the mask with morphological operations (opening & closing) to remove noise.
+    8. Highlight detected regions on the original image by coloring those pixels red.
+    9. Create a semi-transparent overlay by blending the original image and the highlighted image.
+    10. Return the original image, the raw mask, the cleaned mask, and the final highlighted overlay.
+    
+    """
 
-    # Preprocess the image (optional)
-    #image_blurred = cv2.GaussianBlur(image, (5, 5), 0) 
-    image_blurred = custom_gaussian_blur(image, (5, 5), 0)  # 5x5 Gaussian kernel, automatically determine sigma
+    # 1. Load the image from the specified path
+    image = cv2.imread(image_path)  # OpenCV loads images in BGR format by default
 
+    # 2. Convert from BGR to RGB for consistent color processing and display
+    image = custom_bgr_to_rgb(image)
 
+    # 3. Apply a Gaussian blur to reduce noise and details
+    #    - Kernel size is 5x5
+    #    - Sigma=0 indicates automatic estimation based on kernel size
+    image_blurred = custom_gaussian_blur(image, (5, 5), 0)
 
-    # Convert the image to HSV color space
-    #hsv_image = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2HSV)
-    hsv_image = custom_rgb_to_hsv(image_blurred)  # fena degil is gorur
+    # 4. Convert the blurred RGB image to HSV color space
+    #    - Hue range in our custom implementation: [0, 180]
+    #    - Saturation/Value range: [0, 255]
+    hsv_image = custom_rgb_to_hsv(image_blurred)
 
-
-    # Dynamically determine the HSV range for yellow
+    # 5. Dynamically determine the HSV range for 'yellow' using statistical analysis of the image
+    #    - The function inspects hue values in a given range and adjusts bounds based on percentiles
     lower_yellow, upper_yellow = get_dynamic_hsv_range(hsv_image)
 
-    # Convert to np.uint8 to ensure compatibility
-    lower_yellow = lower_yellow.astype(np.uint8)
-    upper_yellow = upper_yellow.astype(np.uint8)
+    # 6. Create a binary mask, where 1 (255) indicates the pixel is within the yellow color range
+    #    - Convert bounds to uint8 if necessary
+    yellow_mask = custom_in_range(hsv_image, lower_yellow.astype(np.uint8), upper_yellow.astype(np.uint8))
 
-    print(f"Dynamic HSV Range for Yellow in {image_path}: Lower {lower_yellow}, Upper {upper_yellow}")
-
-    # Create a mask for yellow
-    yellow_mask = custom_in_range(hsv_image, lower_yellow, upper_yellow)
-
-    # Apply morphological operations to clean the mask
+    # 7. Clean the mask using morphological operations (opening to remove noise, closing to fill gaps)
     yellow_mask_cleaned = apply_morphology(yellow_mask)
 
-    # Apply the cleaned mask to highlight the yellow areas
+    # 8. Highlight the yellow areas on the original image
+    #    - Copy the original image so we don't overwrite it
+    #    - Color detected areas in red ([255, 0, 0] in RGB)
     highlighted = image.copy()
-    highlighted[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
+    highlighted[yellow_mask_cleaned > 0] = [255, 0, 0]
 
-    # Create a semi-transparent overlay
+    # 9. Create a semi-transparent overlay by blending the original image (70% weight)
+    #    with the highlighted image (30% weight)
     overlay = image.copy()
-    overlay[yellow_mask_cleaned > 0] = [255, 0, 0]  # Highlight in red
+    overlay[yellow_mask_cleaned > 0] = [255, 0, 0]
     semi_transparent = custom_add_weighted(image, 0.7, overlay, 0.3, 0)
 
+    # 10. Return the tuple of results
     return image, yellow_mask, yellow_mask_cleaned, semi_transparent
+
 
 """ process_video("videos/video2.mp4", "outputs/output.mp4")
  """ 
